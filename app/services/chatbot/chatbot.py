@@ -16,6 +16,28 @@ logger = logging.getLogger(__name__)
 
 class ChatbotService:
     
+    PMOOD_DEFINITIONS = {
+        "pmood1": """Bold Energy: Make every word count with impact and strength. Use assertive language, 
+        strong statements, and confident phrasing. Your message should command attention and leave no room 
+        for ambiguity. Be direct, powerful, and unapologetic in your expression.""",
+        
+        "pmood2": """Confidence in Every Word: Express yourself with unwavering self-assurance and poise. 
+        Use language that demonstrates certainty, competence, and ease. Avoid hedging words like 'maybe', 
+        'I think', or 'perhaps'. Instead, state things with conviction and natural authority.""",
+        
+        "pmood3": """Fun Vibes Only: Keep it light, playful, and effortlessly entertaining. Use humor, 
+        wit, and upbeat energy. Include playful language, casual expressions, and an easy-going tone 
+        that makes the conversation feel enjoyable and stress-free. Make them smile.""",
+        
+        "pmood4": """Soft but Strong: Balance warmth with confidence. Be kind, empathetic, and genuine 
+        while maintaining your ground. Use gentle language that shows care and understanding, but never 
+        comes across as weak or uncertain. Demonstrate emotional intelligence and authentic connection.""",
+        
+        "pmood5": """Flirty Vibes: Add subtle playfulness and romantic intrigue. Use light teasing, 
+        playful banter, and charming language that creates attraction. Be engaging and slightly mysterious, 
+        with hints of interest that invite reciprocation. Keep it classy, not overly forward."""
+    }
+    
     MODE1_TONES = {
         "casual": "Keep the tone light, friendly, and conversational. Use casual language, humor, and a relaxed vibe.",
         "flirty": "Add a playful, charming tone with light teasing. Be engaging, witty, and slightly flirty while remaining respectful.",
@@ -53,6 +75,35 @@ class ChatbotService:
         self.model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         logger.info(f"Initialized Groq client with model: {self.model}")
 
+    def _build_pmood_instruction(self, pmoods_off: Optional[List[str]] = None) -> str:
+        """
+        Build instruction text for personalization moods.
+        All moods are ON by default. Pass pmoods_off list to disable specific moods.
+        """
+        # Start with all moods enabled
+        all_moods = list(self.PMOOD_DEFINITIONS.keys())
+        
+        # Remove disabled moods
+        if pmoods_off and len(pmoods_off) > 0:
+            active_moods = [mood for mood in all_moods if mood not in pmoods_off]
+        else:
+            # All moods are active by default
+            active_moods = all_moods
+        
+        if not active_moods:
+            return ""
+        
+        mood_descriptions = [self.PMOOD_DEFINITIONS.get(mood, "") for mood in active_moods if mood in self.PMOOD_DEFINITIONS]
+        
+        if not mood_descriptions:
+            return ""
+        
+        instruction = "\n\nPERSONALIZATION LAYER - Apply these personality traits to your response:\n"
+        instruction += "\n".join([f"{desc}" for desc in mood_descriptions])
+        instruction += "\n\nBlend these traits naturally into your response without being heavy-handed."
+        
+        return instruction
+
     def _call_groq(self, messages: List[Dict[str, str]], temperature: float = 0.7, max_tokens: int = 500) -> str:
         """
         Call Groq API with chat completion format
@@ -69,7 +120,7 @@ class ChatbotService:
             logger.error(f"Groq API call failed: {e}")
             raise
 
-    def analyze_mode1_context(self, opposite_message: str, user_message: str, mode: Optional[str] = None, context: Optional[str] = None) -> Dict:
+    def analyze_mode1_context(self, opposite_message: str, user_message: str, mode: Optional[str] = None, context: Optional[str] = None, pmoods_off: Optional[List[str]] = None) -> Dict:
         """
         First-pass analysis to understand the conversation and determine tone approach.
         """
@@ -105,7 +156,7 @@ Respond in JSON format with analysis."""
             logger.warning(f"Error in tone analysis: {e}")
             return {"analysis": "Conversation context noted"}
 
-    def generate_mode1_reply(self, opposite_message: str, user_message: str, mode: Optional[str] = None, context: Optional[str] = None) -> str:
+    def generate_mode1_reply(self, opposite_message: str, user_message: str, mode: Optional[str] = None, context: Optional[str] = None, pmoods_off: Optional[List[str]] = None) -> str:
         """
         Generate a contextual reply based on the conversation and specified tone.
         """
@@ -115,6 +166,8 @@ Respond in JSON format with analysis."""
             mode_name = mode if mode else "casual"
             tone_instruction = self.MODE1_TONES.get(mode_name, self.MODE1_TONES["casual"])
         
+        pmood_instruction = self._build_pmood_instruction(pmoods_off)
+        
         system_prompt = """You are an expert conversationalist skilled in crafting witty, engaging replies.
 
 TASK:
@@ -122,6 +175,7 @@ TASK:
 - Generate a natural, engaging reply that incorporates the user's message
 - The reply should respond directly to the other person's message
 - Shape the tone/style according to the specified instructions
+- Apply the Personalization Layer to set the overall vibe of your response
 - Keep it authentic and conversational (1-3 sentences typically)
 
 RESPONSE FORMAT:
@@ -135,7 +189,7 @@ WHAT I WANT TO SAY:
 "{user_message}"
 
 TONE INSTRUCTION:
-{tone_instruction}
+{tone_instruction}{pmood_instruction}
 
 Generate a natural reply that incorporates what I want to say while responding to their message in the specified tone."""
         
@@ -152,7 +206,7 @@ Generate a natural reply that incorporates what I want to say while responding t
             logger.error(f"Error generating Mode 1 reply: {e}")
             return f"That's cool! {user_message}"
 
-    def analyze_mode2_intent(self, mood: Optional[str] = None, context: Optional[str] = None) -> Dict:
+    def analyze_mode2_intent(self, mood: Optional[str] = None, context: Optional[str] = None, pmoods_off: Optional[List[str]] = None) -> Dict:
         """
         Analyze the intent for generating a conversation opener.
         """
@@ -187,7 +241,7 @@ Generate a natural reply that incorporates what I want to say while responding t
             logger.warning(f"Error in intent analysis: {e}")
             return {"pattern_type": mood or self.MODE2_PATTERNS[0]}
 
-    def generate_mode2_opener(self, mood: Optional[str] = None, context: Optional[str] = None) -> str:
+    def generate_mode2_opener(self, mood: Optional[str] = None, context: Optional[str] = None, pmoods_off: Optional[List[str]] = None) -> str:
         """
         Generate a conversation opener based on mood pattern and optional context.
         """
@@ -195,6 +249,7 @@ Generate a natural reply that incorporates what I want to say while responding t
             mood = self.MODE2_PATTERNS[0]
         
         mood = mood or self.MODE2_PATTERNS[0]
+        pmood_instruction = self._build_pmood_instruction(pmoods_off)
         
         system_prompt = """You are an expert at creating engaging conversation starters.
 
@@ -203,6 +258,7 @@ TASK:
 - The opener should be natural, thought-provoking, and easy to respond to
 - Match the specified pattern structure exactly
 - If context is provided, weave it naturally into the opener
+- Apply the Personalization Layer to set the overall vibe of your opener
 
 RESPONSE FORMAT:
 Provide ONLY the conversation opening statement, nothing else. No JSON, no explanations.
@@ -211,12 +267,12 @@ Keep it concise (1-2 sentences maximum)."""
         if context and len(context.strip()) > 0:
             user_prompt = f"""
 MOOD PATTERN: {mood}
-CONTEXT: {context}
+CONTEXT: {context}{pmood_instruction}
 
 Generate a single, engaging conversation opener that starts with "{mood}" and naturally incorporates the provided context."""
         else:
             user_prompt = f"""
-MOOD PATTERN: {mood}
+MOOD PATTERN: {mood}{pmood_instruction}
 
 Generate a single, engaging conversation opener that starts with "{mood}" and is universally relatable."""
         
@@ -233,7 +289,7 @@ Generate a single, engaging conversation opener that starts with "{mood}" and is
             logger.error(f"Error generating Mode 2 opener: {e}")
             return f"{mood} something interesting?"
 
-    def generate_mode3_curveball(self, situation: str, mood: Optional[str] = None) -> str:
+    def generate_mode3_curveball(self, situation: str, mood: Optional[str] = None, pmoods_off: Optional[List[str]] = None) -> str:
         """
         Generate a reply to handle curveball/awkward situations.
         """
@@ -242,6 +298,7 @@ Generate a single, engaging conversation opener that starts with "{mood}" and is
         
         mood = mood or "casual"
         tone_instruction = self.MODE3_MOODS.get(mood, self.MODE3_MOODS["casual"])
+        pmood_instruction = self._build_pmood_instruction(pmoods_off)
         
         system_prompt = """You are an expert at handling awkward, confusing, or curveball moments in conversations.
 
@@ -251,6 +308,7 @@ TASK:
 - Make it natural, authentic, and conversation-appropriate
 - Keep it concise (1-3 sentences typically)
 - Turn the awkward moment into a smooth continuation of the conversation
+- Apply the Personalization Layer to set the overall vibe of your response
 
 RESPONSE FORMAT:
 Provide ONLY the reply message, nothing else. No JSON, no explanations."""
@@ -260,7 +318,7 @@ SITUATION:
 "{situation}"
 
 TARGET MOOD:
-{tone_instruction}
+{tone_instruction}{pmood_instruction}
 
 Generate a smooth reply that handles this curveball situation in the specified mood."""
         
@@ -291,7 +349,8 @@ Generate a smooth reply that handles this curveball situation in the specified m
                     request.opposite_person_message,
                     request.user_message,
                     request.mode,
-                    request.context
+                    request.context,
+                    request.pmoods if hasattr(request, 'pmoods') else None
                 )
                 
                 # Generate reply
@@ -299,7 +358,8 @@ Generate a smooth reply that handles this curveball situation in the specified m
                     request.opposite_person_message,
                     request.user_message,
                     request.mode,
-                    request.context
+                    request.context,
+                    request.pmoods if hasattr(request, 'pmoods') else None
                 )
                 
                 logger.info(f"Processed Mode 1 request successfully")
@@ -314,10 +374,10 @@ Generate a smooth reply that handles this curveball situation in the specified m
             
             elif request.mode_type == ModeType.MODE2:
                 # Analyze intent
-                analysis = self.analyze_mode2_intent(request.mood, request.context)
+                analysis = self.analyze_mode2_intent(request.mood, request.context, request.pmoods if hasattr(request, 'pmoods') else None)
                 
                 # Generate opener
-                opener = self.generate_mode2_opener(request.mood, request.context)
+                opener = self.generate_mode2_opener(request.mood, request.context, request.pmoods if hasattr(request, 'pmoods') else None)
                 
                 logger.info(f"Processed Mode 2 request successfully")
                 return ChatResponse(
@@ -337,7 +397,8 @@ Generate a smooth reply that handles this curveball situation in the specified m
                 # Generate curveball reply
                 reply = self.generate_mode3_curveball(
                     request.situation_description,
-                    request.mood
+                    request.mood,
+                    request.pmoods if hasattr(request, 'pmoods') else None
                 )
                 
                 logger.info(f"Processed Mode 3 request successfully")

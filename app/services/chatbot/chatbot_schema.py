@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -8,6 +8,15 @@ class ModeType(str, Enum):
     MODE1 = "mode1"
     MODE2 = "mode2"
     MODE3 = "mode3"
+
+
+class PMood(str, Enum):
+    """Personalization moods that affect all conversation responses"""
+    PMOOD1 = "pmood1"  # Bold energy
+    PMOOD2 = "pmood2"  # Confidence in every word
+    PMOOD3 = "pmood3"  # Fun vibes only
+    PMOOD4 = "pmood4"  # Soft but strong
+    PMOOD5 = "pmood5"  # Flirty vibes
 
 
 class ChatRequest(BaseModel):
@@ -29,6 +38,7 @@ class ChatRequest(BaseModel):
     
     # Common fields
     context: Optional[str] = Field(None, description="Optional context for personalization")
+    pmoods: Optional[List[PMood]] = Field(None, description="Personalization moods (pmood1-pmood5). If not provided, all moods apply.")
 
     class Config:
         json_schema_extra = {

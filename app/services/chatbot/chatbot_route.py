@@ -14,6 +14,30 @@ load_dotenv()
 
 router = APIRouter()
 
+# Personalization Moods (PMoods) - affect all conversation responses
+# These are ON by default and can be toggled OFF individually
+PMOOD_DEFINITIONS = {
+    "pmood1": """Bold Energy: Make every word count with impact and strength. Use assertive language, 
+    strong statements, and confident phrasing. Your message should command attention and leave no room 
+    for ambiguity. Be direct, powerful, and unapologetic in your expression.""",
+    
+    "pmood2": """Confidence in Every Word: Express yourself with unwavering self-assurance and poise. 
+    Use language that demonstrates certainty, competence, and ease. Avoid hedging words like 'maybe', 
+    'I think', or 'perhaps'. Instead, state things with conviction and natural authority.""",
+    
+    "pmood3": """Fun Vibes Only: Keep it light, playful, and effortlessly entertaining. Use humor, 
+    wit, and upbeat energy. Include playful language, casual expressions, and an easy-going tone 
+    that makes the conversation feel enjoyable and stress-free. Make them smile.""",
+    
+    "pmood4": """Soft but Strong: Balance warmth with confidence. Be kind, empathetic, and genuine 
+    while maintaining your ground. Use gentle language that shows care and understanding, but never 
+    comes across as weak or uncertain. Demonstrate emotional intelligence and authentic connection.""",
+    
+    "pmood5": """Flirty Vibes: Add subtle playfulness and romantic intrigue. Use light teasing, 
+    playful banter, and charming language that creates attraction. Be engaging and slightly mysterious, 
+    with hints of interest that invite reciprocation. Keep it classy, not overly forward."""
+}
+
 # API configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -32,6 +56,37 @@ GEMINI_VISION_MODEL = genai.GenerativeModel('gemini-2.0-flash-lite')
 GEMINI_TEXT_MODEL = genai.GenerativeModel('gemini-2.0-flash-lite')
 
 
+def build_pmood_instruction(pmoods_off: Optional[list] = None) -> str:
+    """
+    Build instruction text for personalization moods.
+    All moods are ON by default. Pass pmoods_off list to disable specific moods.
+    Example: pmoods_off=['pmood2', 'pmood4'] will apply pmood1, pmood3, pmood5 only.
+    """
+    # Start with all moods enabled
+    all_moods = list(PMOOD_DEFINITIONS.keys())
+    
+    # Remove disabled moods
+    if pmoods_off and len(pmoods_off) > 0:
+        active_moods = [mood for mood in all_moods if mood not in pmoods_off]
+    else:
+        # All moods are active by default
+        active_moods = all_moods
+    
+    if not active_moods:
+        return ""
+    
+    mood_descriptions = [PMOOD_DEFINITIONS.get(mood, "") for mood in active_moods if mood in PMOOD_DEFINITIONS]
+    
+    if not mood_descriptions:
+        return ""
+    
+    instruction = "\n\nPERSONALIZATION LAYER - Apply these personality traits to your response:\n"
+    instruction += "\n".join([f"{desc}" for desc in mood_descriptions])
+    instruction += "\n\nBlend these traits naturally into your response without being heavy-handed."
+    
+    return instruction
+
+
 # ============================================================================
 # MODE 1: MESSAGE REWRITER
 # ============================================================================
@@ -43,7 +98,7 @@ class Mode1Mood(str, Enum):
     SLAP_BACK = "slap_back"
 
 
-def build_mode1_prompt(original_message: str, user_response: str, mood: str, personal_context: Optional[str] = None, image_context: Optional[str] = None) -> str:
+def build_mode1_prompt(original_message: str, user_response: str, mood: str, personal_context: Optional[str] = None, image_context: Optional[str] = None, pmoods_off: Optional[list] = None) -> str:
     """Build prompt for Mode1: Message Rewriter"""
     
     mood_instructions = {
@@ -57,6 +112,7 @@ def build_mode1_prompt(original_message: str, user_response: str, mood: str, per
     
     ctx_text = f"\n- Personal Context: {personal_context}" if personal_context else ""
     img_text = f"\n- Visual Context from Chat Screenshot: {image_context}" if image_context else ""
+    pmood_text = build_pmood_instruction(pmoods_off)
     
     prompt = f"""
 SYSTEM INSTRUCTIONS:
@@ -66,13 +122,14 @@ You must strictly follow these rules:
 2. Rewrite the 'User Draft' to match the 'Target Tone'.
 3. Incorporate 'Personal Context' if provided.
 4. Use 'Visual Context' from the chat screenshot to better understand the conversation flow and dynamics.
-5. OUTPUT FORMAT: Respond ONLY with a JSON object in this exact format: {{"reply": "your rewritten message here"}}
-6. Do NOT include markdown formatting, explanations, or any other text.
+5. Apply the 'Personalization Layer' to set the overall vibe of your response.
+6. OUTPUT FORMAT: Respond ONLY with a JSON object in this exact format: {{"reply": "your rewritten message here"}}
+7. Do NOT include markdown formatting, explanations, or any other text.
 
 INPUT DATA:
 - Original Message: "{original_message}"
 - User Draft: "{user_response}"
-- Target Tone: {target_tone}{ctx_text}{img_text}
+- Target Tone: {target_tone}{ctx_text}{img_text}{pmood_text}
 
 Respond with ONLY: {{"reply": "your rewritten message"}}
 """
@@ -93,7 +150,7 @@ class Mode2OpenerType(str, Enum):
     HOW_WOULD_YOU_HANDLE = "how_would_you_handle"
 
 
-def build_mode2_prompt(opener_type: str, context: Optional[str] = None) -> str:
+def build_mode2_prompt(opener_type: str, context: Optional[str] = None, pmoods_off: Optional[list] = None) -> str:
     """Build prompt for Mode2: Icebreaker Generator"""
     
     opener_type_instructions = {
@@ -108,6 +165,7 @@ def build_mode2_prompt(opener_type: str, context: Optional[str] = None) -> str:
     
     opener_instruction = opener_type_instructions.get(opener_type, "Generate an engaging conversation opener.")
     ctx_text = f"\nCONTEXT: {context}" if context else ""
+    pmood_text = build_pmood_instruction(pmoods_off)
     
     prompt = f"""
 SYSTEM INSTRUCTIONS:
@@ -119,11 +177,12 @@ You must strictly follow these rules:
 3. If 'Context' is provided, incorporate it subtly to make the opener more personalized and relevant.
 4. Keep it concise (1-3 sentences maximum).
 5. Make it open-ended to encourage a response.
-6. OUTPUT FORMAT: Respond ONLY with a JSON object in this exact format: {{"reply": "your icebreaker message here"}}
-7. Do NOT include markdown formatting, explanations, or any other text.
+6. Apply the 'Personalization Layer' to set the overall vibe of your opener.
+7. OUTPUT FORMAT: Respond ONLY with a JSON object in this exact format: {{"reply": "your icebreaker message here"}}
+8. Do NOT include markdown formatting, explanations, or any other text.
 
 TASK:
-- Opener Type: {opener_instruction}{ctx_text}
+- Opener Type: {opener_instruction}{ctx_text}{pmood_text}
 
 Respond with ONLY: {{"reply": "your icebreaker message"}}
 """
@@ -144,7 +203,7 @@ class Mode3Mood(str, Enum):
     EMPATHETIC = "empathetic"
 
 
-def build_mode3_prompt(situation_description: str, mood: str, image_context: Optional[str] = None) -> str:
+def build_mode3_prompt(situation_description: str, mood: str, image_context: Optional[str] = None, pmoods_off: Optional[list] = None) -> str:
     """Build prompt for Mode3: Curveball Handler"""
     
     mood_instructions = {
@@ -159,6 +218,7 @@ def build_mode3_prompt(situation_description: str, mood: str, image_context: Opt
     
     target_tone = mood_instructions.get(mood, "Handle the situation appropriately.")
     img_text = f"\n- Visual Context from Screenshot: {image_context}" if image_context else ""
+    pmood_text = build_pmood_instruction(pmoods_off)
     
     prompt = f"""
 SYSTEM INSTRUCTIONS:
@@ -170,12 +230,13 @@ You must strictly follow these rules:
 3. Make it natural, authentic, and conversation-appropriate.
 4. Keep it concise (1-3 sentences typically).
 5. Turn the awkward moment into a smooth continuation of the conversation.
-6. OUTPUT FORMAT: Respond ONLY with a JSON object in this exact format: {{"reply": "your response here"}}
-7. Do NOT include markdown formatting, explanations, or any other text.
+6. Apply the 'Personalization Layer' to set the overall vibe of your response.
+7. OUTPUT FORMAT: Respond ONLY with a JSON object in this exact format: {{"reply": "your response here"}}
+8. Do NOT include markdown formatting, explanations, or any other text.
 
 INPUT DATA:
 - Situation: "{situation_description}"
-- Target Mood: {target_tone}{img_text}
+- Target Mood: {target_tone}{img_text}{pmood_text}
 
 Respond with ONLY: {{"reply": "your curveball response"}}
 """
@@ -336,6 +397,9 @@ async def unified_chat(
     # Mode3 fields
     situation_description: Optional[str] = Form(None, description="[Mode3] Description of the curveball/awkward situation"),
     
+    # Personalization moods (applicable to all modes)
+    pmoods_off: Optional[str] = Form(None, description="Comma-separated list of moods to DISABLE (pmood1-pmood5). All moods are ON by default. Example: 'pmood2,pmood4' to turn off only pmood2 and pmood4."),
+    
     # Image uploads (optional for Mode1 and Mode3)
     file: UploadFile= File(None, description="Optional: Chat screenshot image file (PNG, JPEG, WEBP, HEIC, HEIF) - for Mode1 and Mode3")
 ):
@@ -348,6 +412,11 @@ async def unified_chat(
     """
     try:
         mode = mode.lower()
+        
+        # Parse pmoods_off parameter (list of moods to disable)
+        pmoods_off_list = None
+        if pmoods_off:
+            pmoods_off_list = [p.strip().lower() for p in pmoods_off.split(',') if p.strip()]
         
         # Extract image context if provided (Mode1 or Mode3)
         image_context = None
@@ -384,7 +453,8 @@ async def unified_chat(
                 user_response=response,
                 mood=mood or "casual",
                 personal_context=personal_context,
-                image_context=image_context
+                image_context=image_context,
+                pmoods_off=pmoods_off_list
             )
             
             # Call Gemini API
@@ -412,7 +482,8 @@ async def unified_chat(
             # Build prompt
             prompt = build_mode2_prompt(
                 opener_type=opener_type,
-                context=context
+                context=context,
+                pmoods_off=pmoods_off_list
             )
             
             # Call Gemini API
@@ -441,7 +512,8 @@ async def unified_chat(
             prompt = build_mode3_prompt(
                 situation_description=situation_description,
                 mood=mood or "casual",
-                image_context=image_context
+                image_context=image_context,
+                pmoods_off=pmoods_off_list
             )
             
             # Call Gemini API
